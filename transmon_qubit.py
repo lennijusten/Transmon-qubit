@@ -1,19 +1,16 @@
-import numpy as np
-import matplotlib.pyplot as plt
+# Transmon qubit with weak AC Josephson effect
+# Author: Lenni Justen and Dr. Maxim Vavilov
+
+# See Koch, J. et. al, (2007). Charge-insensitive qubit design derived from the Cooper pair box.
+# Physical Review A, 76(4), 042319. https://doi.org/10.1103/PhysRevA.76.042319
+
 import qutip as qt
 import scipy as scy
 from scipy import sparse
+import numpy as np
+import matplotlib.pyplot as plt
+from qutip import destroy
 
-# psi_in: initial wave function
-# f_t: time dependence
-# Difference between perfect bragg oscillations and difference when an actual device is applied
-# LC basis --> LC circuit is modelled by transmon quibit. Inductor is Josephene
-
-# E_L is Josephine energy
-
-# Start with the full hamiltonian but then consider H_0 with pertubations
-
-# Todo: What is phi_lc?
 def phi_lc(E_C,E_L,nlevs): # Delta in picture notation
     """Flux (phase) operator in the LC basis."""
     return (8 * E_C / E_L) ** (0.25) * qt.position(nlevs)
@@ -153,4 +150,71 @@ print(probs[:,-1])
 #  It is less efficient than the LC basis for our problem, but more universal
 H1 = H_coord(0.2, 20.,dx = 0.005)
 ens = H1.eigenenergies()
+
+# Calculating anharmonicity
+# Source https://qiskit.org/textbook/ch-quantum-hardware/transmon-physics.html
+E_C = 300e6
+E_J = 10 ** 3 * E_C
+anharm = -E_C
+w = 5e9
+
+N_phis = 101
+phis = np.linspace(-np.pi, np.pi, N_phis)
+mid_idx = int((N_phis + 1) / 2)
+
+# potential energies of the QHO & transmon
+U_QHO = 0.5 * E_J * phis ** 2
+U_QHO = U_QHO / w
+U_transmon = (E_J - E_J * np.cos(phis))
+U_transmon = U_transmon / w
+
+N = 35
+N_energies = 5
+c = destroy(N)
+H_QHO = w * c.dag() * c
+E_QHO = H_QHO.eigenenergies()[0:N_energies]
+H_transmon = w * c.dag() * c + (anharm / 2) * (c.dag() * c) * (c.dag() * c - 1)
+E_transmon = H_transmon.eigenenergies()[0:2 * N_energies]
+
+print(E_QHO[:4])
+print(E_transmon[:8])
+
+fig, axes = plt.subplots(1, 1, figsize=(6, 6))
+
+axes.plot(phis, U_transmon, '-', color='orange', linewidth=3.0)
+axes.plot(phis, U_QHO, '--', color='blue', linewidth=3.0)
+
+E_corrected = []
+for eidx in range(1, N_energies):
+    delta_E_QHO = (E_QHO[eidx] - E_QHO[0]) / w
+    delta_E_transmon = (E_transmon[2 * eidx] - E_transmon[0]) / w
+    E_corrected.append(delta_E_transmon)
+
+    QHO_lim_idx = min(np.where(U_QHO[int((N_phis + 1) / 2):N_phis] > delta_E_QHO)[0])
+    trans_lim_idx = min(np.where(U_transmon[int((N_phis + 1) / 2):N_phis] > delta_E_transmon)[0])
+    trans_label, = axes.plot([phis[mid_idx - trans_lim_idx - 1], phis[mid_idx + trans_lim_idx - 1]],
+                             [delta_E_transmon, delta_E_transmon], '-', color='orange', linewidth=3.0)
+    qho_label, = axes.plot([phis[mid_idx - QHO_lim_idx - 1], phis[mid_idx + QHO_lim_idx - 1]],
+                           [delta_E_QHO, delta_E_QHO], '--', color='blue', linewidth=3.0)
+
+axes.set_xlabel('Phase $\phi$', fontsize=18)
+axes.set_ylabel('Energy Levels / $\hbar\omega$', fontsize=18)
+axes.set_ylim(-0.2, 5)
+
+qho_label.set_label('QHO Energies')
+trans_label.set_label('Transmon Energies')
+axes.legend(loc=2, fontsize=14)
+plt.show()
+
+A_harm = (E_transmon[2]-E_transmon[1])-(E_transmon[1]-E_transmon[0])
+
+hbar = 1.054*10**-34
+omega = 5e9
+E_ratio = np.linspace(1**-5,0.5,100)
+anhom = -2*np.pi*hbar*omega*(8*E_ratio)**(-1/2)
+
+plt.plot(E_ratio, anhom)
+plt.ylabel('Anharmonicity $\\alpha$')
+plt.xlabel('$E_C/E_J$')
+plt.show()
 
